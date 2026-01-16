@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
 
-# ========== إعدادات التطبيق ==========
+# ========== إعدادات التطبيق ==========# ========== إعدادات التطبيق ==========
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -28,9 +28,9 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', '7628474532:AAHQMH9nJHYqB25X89kQYtE8Ms3x
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ========== إعدادات Webhook ==========
-DOMAIN = os.environ.get('RENDER_DOMAIN', 'python-fqor.onrender.com')
+# استخدم متغير البيئة أو القيمة الافتراضية الجديدة
+DOMAIN = os.environ.get('RENDER_DOMAIN', 'telegram-tracking-bot.onrender.com')
 WEBHOOK_URL = f'https://{DOMAIN}/webhook'
-
 # ========== تخزين البيانات ==========
 tracking_links = {}
 user_data = {}
