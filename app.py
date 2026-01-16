@@ -473,4 +473,31 @@ if __name__ == '__main__':
     logger.info("✅ النظام جاهز!")
     logger.info("=" * 50)
     
+    # ========== بدء Polling فوراً ==========
+
+# بدء Polling في الخلفية فوراً
+import threading
+
+def start_polling_immediately():
+    """بدء Polling فوراً"""
+    logger.info("🚀 بدء Polling الفوري...")
+    time.sleep(3)  # انتظار بسيط
+    
+    try:
+        # اختبار الاتصال
+        bot_info = bot.get_me()
+        logger.info(f"✅ البوت جاهز: @{bot_info.username}")
+        
+        # بدء Polling
+        logger.info("🎯 بدء استقبال رسائل Telegram...")
+        bot.infinity_polling(timeout=30, long_polling_timeout=30, logger_level=logging.INFO)
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في Polling: {e}")
+        logger.info("🔄 سيتم المحاولة تلقائياً...")
+
+# بدء Polling في خيط منفصل
+polling_thread = threading.Thread(target=start_polling_immediately, daemon=True)
+polling_thread.start()
+logger.info("✅ بدأ خيط Polling")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
